@@ -6,7 +6,7 @@ multicamera_node:
         #   - TIME_FROM_PTP: Time from PTP which is syncronized with TSC
         #   - TIME_FROM_ROS: This used ROS time. Whenever a frame is published, this will
         #     be stamped before being published with ROS time.
-        timestamp_mode: TIME_FROM_PTP
+        timestamp_mode: TIME_FROM_TSC
         camera_settings:
             mode: 2
             fps: 20
