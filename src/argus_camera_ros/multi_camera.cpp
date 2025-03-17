@@ -240,7 +240,7 @@ void MultiCamera::capture_thread_execution() {
         failed_aquire = false;
         // Acquire frames
         for (int i = 0; i < streams_.size(); i++) {
-            Status status;
+            Argus::Status status;
             UniqueObj<Frame> frame(
                 frame_consumers[i]->acquireFrame(1000000000, &status));
 
