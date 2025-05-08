@@ -2,10 +2,13 @@
 #include <rclcpp/utilities.hpp>
 
 #include "argus_camera_ros/camera_node.hpp"
+#include "argus_camera_ros/test_node.hpp"
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    std::shared_ptr<ArgusCameraNode> camera_node = std::make_shared<ArgusCameraNode>();
+    // std::shared_ptr<ArgusCameraNode> camera_node =
+    // std::make_shared<ArgusCameraNode>();
+    std::shared_ptr<TestNode> camera_node = std::make_shared<TestNode>();
 
     rclcpp::spin(camera_node);
 
