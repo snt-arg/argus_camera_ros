@@ -15,6 +15,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
+find_package(image_transport REQUIRED)
 find_package(camera_info_manager REQUIRED)
 
 
@@ -65,7 +66,19 @@ file(GLOB JETSON_SOURCES CONFIGURE_DEPENDS "${JETSON_CLASS_DIR}/*.cpp")
 # - End of Jetson Specific Variables -
 # --------------------------------------
 
-SET(DEPENDENCIES rclcpp std_msgs sensor_msgs geometry_msgs tf2 tf2_ros OpenCV cv_bridge camera_info_manager)
+SET(DEPENDENCIES 
+  rclcpp
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+  OpenCV
+  cv_bridge
+  image_transport
+  camera_info_manager
+)
+
 SET(LIBS ${JETSON_LIBS})
 
 

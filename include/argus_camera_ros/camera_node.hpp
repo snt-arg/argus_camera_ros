@@ -1,6 +1,7 @@
 #ifndef CAMERA_NODE_HPP
 #define CAMERA_NODE_HPP
 
+#include <image_transport/image_transport.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
@@ -20,6 +21,8 @@ class ArgusCameraNode : public rclcpp::Node {
     void build_camera_msg_(std::vector<sensor_msgs::msg::Image::SharedPtr> &msgs,
                            std::vector<cv::Mat> &camera_frames);
 
+    rclcpp::Node::SharedPtr node_handle_;
+
     std::vector<std::string> camera_names_;
     std::vector<std::string> frame_ids_;
     std::vector<std::string> camera_urls_;
@@ -29,7 +32,8 @@ class ArgusCameraNode : public rclcpp::Node {
 
     std::vector<std::unique_ptr<camera_info_manager::CameraInfoManager>> camera_info_;
 
-    std::vector<rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> img_pubs_;
+    std::vector<std::shared_ptr<image_transport::ImageTransport>> img_its_;
+    std::vector<image_transport::Publisher> img_pubs_;
     std::vector<rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr>
         camera_info_pubs_;
     rclcpp::TimerBase::SharedPtr pub_timer_;

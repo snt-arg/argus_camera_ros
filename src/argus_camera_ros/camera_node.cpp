@@ -3,6 +3,8 @@
 #include <cv_bridge/cv_bridge.h>
 
 #include <camera_info_manager/camera_info_manager.hpp>
+#include <image_transport/image_transport.hpp>
+#include <memory>
 #include <sensor_msgs/msg/detail/camera_info__struct.hpp>
 
 static const MultiCamera::Config DEFAULT_CONFIG{
@@ -30,7 +32,10 @@ static const std::vector<std::string> DEFAULT_URLS{
     "package://argus_camera_ros/config/right_info.yaml",
     "package://argus_camera_ros/config/left_info.yaml"};
 
-ArgusCameraNode::ArgusCameraNode() : Node("argus_camera_node"), cameras_config_() {
+ArgusCameraNode::ArgusCameraNode()
+    : Node("argus_camera_node"),
+      node_handle_(std::shared_ptr<ArgusCameraNode>(this, [](auto *) {})),
+      cameras_config_() {
     declare_parameters_();
     read_parameters_();
 
@@ -49,17 +54,18 @@ void ArgusCameraNode::init_pubs_() {
         std::bind(&ArgusCameraNode::pub_callback_, this));
 
     for (int i = 0; i < camera_names_.size(); i++) {
-        // INFO: We could perhaps change the queue size, or use a different QoS
+        img_its_.push_back(
+            std::make_shared<image_transport::ImageTransport>(node_handle_));
+    }
+
+    for (int i = 0; i < img_its_.size(); i++) {
         std::string topic = "/camera/" + camera_names_[i] + "/image_raw";
-        img_pubs_.push_back(this->create_publisher<sensor_msgs::msg::Image>(topic, 10));
+
+        img_pubs_.push_back(img_its_[i]->advertise(topic, 10));
 
         camera_info_pubs_.push_back(
             this->create_publisher<sensor_msgs::msg::CameraInfo>(
                 "/camera/" + camera_names_[i] + "/camera_info", 10));
-
-        // camera_info_manager_ =
-        // std::make_unique<camera_info_manager::CameraInfoManager>(this,
-        // camera_names_[i], camera_urls_[i]);
 
         camera_info_.push_back(std::make_unique<camera_info_manager::CameraInfoManager>(
             this, camera_names_[i], camera_urls_[i]));
@@ -105,7 +111,12 @@ void ArgusCameraNode::pub_callback_() {
         header.frame_id = frame_ids_[i];
         sensor_msgs::msg::Image::SharedPtr msg =
             cv_bridge::CvImage(header, "bgr8", frames[i]).toImageMsg();
-        img_pubs_[i]->publish(*msg);
+
+        try {
+            img_pubs_[i].publish(msg);
+        } catch (const std::exception &) {
+            RCLCPP_WARN(this->get_logger(), "Failed to publish image");
+        }
 
         sensor_msgs::msg::CameraInfo camera_info = camera_info_[i]->getCameraInfo();
         camera_info.header = header;
