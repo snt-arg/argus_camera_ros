@@ -50,7 +50,7 @@ ArgusCameraNode::~ArgusCameraNode() {}
 
 void ArgusCameraNode::init_pubs_() {
     pub_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(1 / cameras_config_.framerate),
+        std::chrono::milliseconds(1000 / cameras_config_.framerate),
         std::bind(&ArgusCameraNode::pub_callback_, this));
 
     for (int i = 0; i < camera_names_.size(); i++) {

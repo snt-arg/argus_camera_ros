@@ -5,92 +5,112 @@
 #include <EGLStream/EGLStream.h>
 #include <EGLStream/NV/ImageNativeBuffer.h>
 #include <NvBufSurface.h>
-#include <opencv2/core/hal/interface.h>
 
 #include <atomic>
+#include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
-#include <opencv2/core/mat.hpp>
 #include <opencv2/opencv.hpp>
-#include <queue>
 #include <thread>
 #include <vector>
+
+#include "argus_camera_ros/logger.hpp"
 
 namespace argus_camera_ros {
 
 using namespace EGLStream;
 using namespace Argus;
 
-template <typename T>
-bool assert_not_null(T *ptr, const char *message) {
-    if (ptr == nullptr) {
-        std::cerr << "Assertion failed: " << message << " (null pointer detected)"
-                  << std::endl;
-        return false;
-    }
-    return true;
-}
+enum class CameraState {
+    NOT_INITIALIZED,
+    INITIALIZING,
+    READY,
+    RUNNING,
+    RESTARTING,
+    STOPPED,
+    ERROR
+};
 
-#define ASSERT_NOT_NULL(ptr, message) assert_not_null((ptr), (message))
+struct CameraConfig {
+    int id;
+    int mode;
+    int width;
+    int height;
+    float fps;
+    // TODO: Sensor settings
+    // float exposureTime;  // in seconds
+    // float gain;
+};
+
+struct ArgusState {
+    UniqueObj<CameraProvider> provider;
+    UniqueObj<CaptureSession> captureSession;
+    UniqueObj<OutputStream> outputStream;
+    UniqueObj<Request> request;
+};
 
 class ArgusCamera {
-    struct CameraConfig {
-        int64 cameraID;   ///< ID of the camera as listed in /dev/videox
-        int sensorMode;   ///< Sensor mode for image capture (0-3).
-        int imageWidth;   ///< Target width for resized images.
-        int imageHeight;  ///< Target height for resized images.
-        int framerate;    ///< Framerate at which images are captured.
-        // TODO: Missing the exposure, and other settings of each camera sensor
-    };
-
-    enum CameraState {
-        NOT_INITIALIZED = 0,
-        INITIALIZING = 1,
-        READY = 2,
-        INITIALIZING_CAPTURE = 3,
-        CAPTURING = 4,
-        RESTARTING = 5,
-        FAILURE = 6,
-    };
-
    public:
-    ArgusCamera(UniqueObj<CameraProvider> &provider);
-    ~ArgusCamera(void);
+    using FrameCallback = std::function<void(const cv::Mat&)>;
 
-    bool init(void);
-    void startCapture(void);
-    void stopCapture(void);
+    ArgusCamera(CameraProvider* provider, const CameraConfig& config);
+    ArgusCamera(CameraProvider* provider, const CameraConfig& config, Logger& logger);
+    ~ArgusCamera();
 
-    bool getLatestFrame(cv::Mat &frame);
-    // cv::Mat getLatestFrame(void);
-    CameraState getCameraState(void);
+    // Lifecycle
+    bool init();
+    bool startCapture();
+    void stopCapture();
+    bool restartCapture();
 
-    std::string getCameraStateAsString();
-
-   private:
-    ICameraProvider *ICameraProvider_;
-    UniqueObj<CaptureSession> caputureSession_;
-    UniqueObj<OutputStream> outputStream_;
-    UniqueObj<FrameConsumer> FrameConsumer_;
-    UniqueObj<Request> request_;
-
-    CameraDevice *getCameraDeviceByID(int id);
-    std::vector<SensorMode *> getCameraSensorModes(CameraDevice *cameraDevice);
-
-    void setupArgusProducer(CameraDevice *cameraDevice);
-    void setupCaptureConsumer(void);
-
-    void consumerThreadCallback(void);
+    // Accessors
+    cv::Mat getLatestFrame();
+    void getLatestFrame(cv::Mat& out);
+    void setFrameCallback(FrameCallback cb);
+    CameraState getState() const;
 
    private:
-    CameraState currentState;
-    CameraConfig currentConfig;
-    std::thread consumerThread;
-    std::atomic_bool isCapturing;
-    std::mutex bufferMutex;
+    // Configuration
+    CameraConfig config_;
+    CameraProvider* provider_;
 
-    std::queue<cv::Mat> buffer_;
+    ArgusState argusState_;
+    UniqueObj<FrameConsumer> frameConsumer_;
+
+    // Frame handling
+    std::mutex frameMutex_;
+    FrameCallback frameCallback_ = nullptr;
+    std::thread captureThread_;
+    std::atomic<bool> capturing_{false};
+    Argus::UniqueObj<Frame> lastFrame_;
+
+    // State
+    CameraState state_ = CameraState::NOT_INITIALIZED;
+    void setState_(CameraState newState);
+    std::string getStateString(CameraState& state);
+
+    // Helpers
+    bool setupCamera(CameraDevice* cameraDevice, std::vector<SensorMode*>& sensorModes);
+    CameraDevice* getCameraDeviceById(int id);
+    std::vector<SensorMode*> getCameraSensorModes(CameraDevice* cameraDevice);
+    void captureLoop();
+    bool readFrame(cv::Mat& out);
+    void printSensorModes(std::vector<SensorMode*>& modes);
+
+    bool createCaptureSession(CameraDevice* cameraDevice);
+    bool configureOutputStream();
+    bool createCaptureRequest();
+    bool configureRequest(const std::vector<SensorMode*>& sensorModes);
+    bool initializeFrameConsumer();
+
+    cv::Mat convertFrameToMat(IFrame* iFrame, NvBufSurface* bufSurface, int dmaBufFd);
+
+    // Logging
+    Logger logger_;
+    std::string loggerPrefix_ = "";
 };
+
 }  // namespace argus_camera_ros
 
 #endif  // ARGUS_CAMERA_HPP

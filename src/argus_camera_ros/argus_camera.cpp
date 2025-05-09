@@ -2,241 +2,395 @@
 
 #include <cstdlib>
 #include <opencv2/core/mat.hpp>
+#include <opencv2/highgui.hpp>
+#include <string>
 #include <vector>
 
 namespace argus_camera_ros {
 
-ArgusCamera::ArgusCamera(UniqueObj<CameraProvider> &provider) {
-    ICameraProvider_ = interface_cast<ICameraProvider>(provider);
-
-    if (!ASSERT_NOT_NULL(ICameraProvider_,
-                         "Failed to create Camera Provider Interface")) {
-        currentState = FAILURE;
+ArgusCamera::ArgusCamera(CameraProvider *provider, const CameraConfig &config)
+    : config_(config) {
+    loggerPrefix_ = "[Camera(" + std::to_string(config_.id) + ")] ";
+    logger_.info("ArgusCamera instance created", loggerPrefix_);
+    if (provider == nullptr) {
+        logger_.error("Received CameraProvider is a nullptr", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return;
     }
-
-    // currentConfig = config;
+    argusState_.provider.reset(provider);
 }
 
-ArgusCamera::~ArgusCamera() { stopCapture(); }
+ArgusCamera::ArgusCamera(CameraProvider *provider,
+                         const CameraConfig &config,
+                         Logger &logger)
+    : config_(config), logger_(logger) {
+    loggerPrefix_ = "[Camera(" + std::to_string(config_.id) + ")] ";
+    logger_.info("Creating ArgusCamera instance", loggerPrefix_);
+
+    if (provider == nullptr) {
+        logger_.error("Received CameraProvider is a nullptr", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return;
+    }
+    argusState_.provider.reset(provider);
+}
+
+ArgusCamera::~ArgusCamera() {
+    logger_.info("Destroying ArgusCamera instance", loggerPrefix_);
+
+    stopCapture();
+}
 
 bool ArgusCamera::init(void) {
-    currentState = INITIALIZING;
+    logger_.info("Initializing Argus Camera", loggerPrefix_);
+    setState_(CameraState::INITIALIZING);
 
-    CameraDevice *cameraDevice = getCameraDeviceByID(0);
-    setupArgusProducer(cameraDevice);
-    currentState = READY;
+    CameraDevice *cameraDevice = getCameraDeviceById(config_.id);
+    if (cameraDevice == nullptr) return false;
+
+    std::vector<SensorMode *> sensorModes = getCameraSensorModes(cameraDevice);
+    if (sensorModes.empty()) return false;
+
+    // Print available sensor modes
+    printSensorModes(sensorModes);
+
+    if (!setupCamera(cameraDevice, sensorModes)) return false;
+
+    setState_(CameraState::READY);
+
     return true;
 }
 
-void ArgusCamera::startCapture(void) {
-    if (currentState != READY) {
-        std::cerr << "Unable to start capture. Current state is "
-                  << getCameraStateAsString() << "!= READY" << std::endl;
+bool ArgusCamera::startCapture(void) {
+    logger_.info("Starting Capturing", loggerPrefix_);
+
+    if (state_ != CameraState::READY) {
+        logger_.error(
+            "Camera is not READY to start capture. Make sure you have called init()",
+            loggerPrefix_);
+        return false;
     }
 
-    isCapturing = true;
-
-    consumerThread = std::thread(&ArgusCamera::consumerThreadCallback, this);
     ICaptureSession *iCaptureSession =
-        interface_cast<ICaptureSession>(caputureSession_);
-    iCaptureSession->repeat(request_.get());
+        interface_cast<ICaptureSession>(argusState_.captureSession);
+    iCaptureSession->repeat(argusState_.request.get());
+
+    capturing_ = true;
+    captureThread_ = std::thread(&ArgusCamera::captureLoop, this);
+    setState_(CameraState::RUNNING);
+
+    return true;
 }
 
 void ArgusCamera::stopCapture(void) {
-    isCapturing = false;
+    logger_.info("Stopping Capturing", loggerPrefix_);
+    if (capturing_) {
+        capturing_ = false;
+        if (captureThread_.joinable()) {
+            captureThread_.join();
+        }
+    }
+
     ICaptureSession *iCaptureSession =
-        interface_cast<ICaptureSession>(caputureSession_);
+        interface_cast<ICaptureSession>(argusState_.captureSession);
     iCaptureSession->stopRepeat();
-    consumerThread.join();
+    iCaptureSession->waitForIdle(1000000000);
+
+    setState_(CameraState::STOPPED);
 }
+
+bool ArgusCamera::setupCamera(CameraDevice *cameraDevice,
+                              std::vector<SensorMode *> &sensorModes) {
+    if (!createCaptureSession(cameraDevice)) return false;
+    if (!configureOutputStream()) return false;
+    if (!createCaptureRequest()) return false;
+    if (!configureRequest(sensorModes)) return false;
+    if (!initializeFrameConsumer()) return false;
+
+    return true;
+}
+
+void ArgusCamera::captureLoop() {
+    IEGLOutputStream *eglOutputStream =
+        interface_cast<IEGLOutputStream>(argusState_.outputStream);
+    IFrameConsumer *consumer = interface_cast<IFrameConsumer>(frameConsumer_);
+
+    if (!consumer ||
+        eglOutputStream->waitUntilConnected(1 * 100000000) != Argus::STATUS_OK) {
+        logger_.error("Stream or Consumer setup failed.", loggerPrefix_);
+        capturing_ = false;
+        setState_(CameraState::ERROR);
+        return;
+    }
+
+    logger_.info("Argus Stream Capture is now ready", loggerPrefix_);
+
+    int dmaBufFd = -1;
+    NvBufSurface *bufSurface = new NvBufSurface();
+
+    while (capturing_) {
+        Argus::Status status;
+        UniqueObj<Frame> frame(consumer->acquireFrame(1000000000, &status));
+        if (status == Argus::STATUS_TIMEOUT) continue;
+
+        IFrame *iFrame = interface_cast<IFrame>(frame);
+        if (!iFrame) continue;
+
+        lastFrame_ = std::move(frame);  // Store the latest frame in buffer form
+
+        if (frameCallback_) {
+            try {
+                cv::Mat image = convertFrameToMat(iFrame, bufSurface, dmaBufFd);
+                frameCallback_(image);  // Call the hook with converted OpenCV frame
+            } catch (const std::exception &e) {
+                logger_.warn(std::string("Frame conversion failed: ") + e.what(),
+                             loggerPrefix_);
+            }
+        }
+    }
+
+    delete bufSurface;
+    if (dmaBufFd != -1) close(dmaBufFd);
+}
+
+cv::Mat ArgusCamera::convertFrameToMat(IFrame *iFrame,
+                                       NvBufSurface *bufSurface,
+                                       int dmaBufFd) {
+    NV::IImageNativeBuffer *iNativeBuffer =
+        interface_cast<NV::IImageNativeBuffer>(iFrame->getImage());
+
+    if (!iNativeBuffer) throw std::runtime_error("IImageNativeBuffer not supported.");
+
+    if (dmaBufFd == -1) {
+        dmaBufFd = iNativeBuffer->createNvBuffer(
+            Size2D<uint32_t>(640, 480), NVBUF_COLOR_FORMAT_RGBA, NVBUF_LAYOUT_PITCH);
+        if (NvBufSurfaceFromFd(dmaBufFd, (void **)(&bufSurface)) != 0)
+            throw std::runtime_error("Failed to get NvBufSurface.");
+    } else if (iNativeBuffer->copyToNvBuffer(dmaBufFd) != STATUS_OK) {
+        throw std::runtime_error("Failed to copy to NvBuffer.");
+    }
+
+    NvBufSurfaceMap(bufSurface, -1, 0, NVBUF_MAP_READ);
+    NvBufSurfaceSyncForCpu(bufSurface, -1, 0);
+
+    cv::Mat rgba(480, 640, CV_8UC4, bufSurface->surfaceList->mappedAddr.addr[0]);
+    cv::Mat bgr;
+    cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
+
+    NvBufSurfaceUnMap(bufSurface, -1, 0);
+    return bgr;
+}
+
+bool ArgusCamera::createCaptureSession(CameraDevice *cameraDevice) {
+    ICameraProvider *iCameraProvider =
+        interface_cast<ICameraProvider>(argusState_.provider);
+    argusState_.captureSession.reset(
+        iCameraProvider->createCaptureSession(cameraDevice));
+    if (!argusState_.captureSession) {
+        logger_.error("Failed to create the CaptureSession", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return false;
+    }
+
+    if (!interface_cast<ICaptureSession>(argusState_.captureSession) ||
+        !interface_cast<IEventProvider>(argusState_.captureSession)) {
+        logger_.error("Failed to create ICaptureSession/IEventProvider", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return false;
+    }
+
+    return true;
+}
+
+bool ArgusCamera::configureOutputStream() {
+    ICaptureSession *iCaptureSession =
+        interface_cast<ICaptureSession>(argusState_.captureSession);
+
+    OutputStreamSettings *streamSettings =
+        iCaptureSession->createOutputStreamSettings(STREAM_TYPE_EGL);
+    IEGLOutputStreamSettings *iEGLStreamSettings =
+        interface_cast<IEGLOutputStreamSettings>(streamSettings);
+
+    if (!streamSettings || !iEGLStreamSettings) {
+        logger_.error("Failed to create OutputStreamSettings", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return false;
+    }
+
+    iEGLStreamSettings->setPixelFormat(PIXEL_FMT_YCbCr_420_888);
+    iEGLStreamSettings->setResolution(Size2D<uint32_t>(640, 480));
+    iEGLStreamSettings->setMode(EGL_STREAM_MODE_FIFO);
+    iEGLStreamSettings->setFifoLength(4);
+    iEGLStreamSettings->setMetadataEnable(true);
+
+    argusState_.outputStream.reset(iCaptureSession->createOutputStream(streamSettings));
+    if (!argusState_.outputStream) {
+        logger_.error("Failed to create the OutputStream", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return false;
+    }
+
+    return true;
+}
+
+bool ArgusCamera::createCaptureRequest() {
+    ICaptureSession *iCaptureSession =
+        interface_cast<ICaptureSession>(argusState_.captureSession);
+
+    argusState_.request.reset(iCaptureSession->createRequest());
+    IRequest *iRequest = interface_cast<IRequest>(argusState_.request);
+
+    if (!argusState_.request || !iRequest) {
+        logger_.error("Failed to create the iRequest", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return false;
+    }
+
+    iRequest->enableOutputStream(argusState_.outputStream.get());
+    return true;
+}
+
+bool ArgusCamera::configureRequest(const std::vector<SensorMode *> &sensorModes) {
+    IRequest *iRequest = interface_cast<IRequest>(argusState_.request);
+    ISourceSettings *iSourceSettings =
+        interface_cast<ISourceSettings>(iRequest->getSourceSettings());
+    IAutoControlSettings *iAutoControlSettings =
+        interface_cast<IAutoControlSettings>(iRequest->getAutoControlSettings());
+
+    if (!iSourceSettings || !iAutoControlSettings) {
+        logger_.error("Failed to get ISourceSettings/IAutoControlSettings",
+                      loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return false;
+    }
+
+    iSourceSettings->setSensorMode(sensorModes[config_.mode]);
+    iSourceSettings->setFrameDurationRange(Range<uint64_t>(1e9 / 30));
+
+    return true;
+}
+
+bool ArgusCamera::initializeFrameConsumer() {
+    frameConsumer_.reset(FrameConsumer::create(argusState_.outputStream.get()));
+    if (!frameConsumer_) {
+        logger_.error("Failed to create FrameConsumer", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return false;
+    }
+    return true;
+}
+
+cv::Mat ArgusCamera::getLatestFrame() {
+    cv::Mat frame;
+
+    return frame;
+}
+void ArgusCamera::getLatestFrame(cv::Mat &out) {}
+
+CameraState ArgusCamera::getState() const { return state_; }
 
 std::vector<SensorMode *> ArgusCamera::getCameraSensorModes(
     CameraDevice *cameraDevice) {
     std::vector<SensorMode *> modes;
-    ICameraProperties *properties = interface_cast<ICameraProperties>(cameraDevice);
+    ICameraProperties *iCameraProperties =
+        interface_cast<ICameraProperties>(cameraDevice);
 
-    properties->getAllSensorModes(&modes);
+    if (iCameraProperties == nullptr) {
+        logger_.error("Failed to obtain the ICameraProperties", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return modes;
+    }
+
+    iCameraProperties->getAllSensorModes(&modes);
+
+    if (modes.empty()) {
+        logger_.error("Failed to get sensor modes", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return modes;
+    }
     return modes;
 }
 
-void ArgusCamera::setupArgusProducer(CameraDevice *cameraDevice) {
-    std::vector<SensorMode *> sensor_modes = getCameraSensorModes(cameraDevice);
-    caputureSession_.reset(ICameraProvider_->createCaptureSession(cameraDevice));
-
-    ICaptureSession *capture_session_i =
-        interface_cast<ICaptureSession>(caputureSession_);
-
-    IEventProvider *event_provider_i = interface_cast<IEventProvider>(caputureSession_);
-    if (!event_provider_i || !event_provider_i) {
-        std::cerr << "[ERROR] Failed to create CaptureSession" << std::endl;
-    }
-
-    UniqueObj<OutputStreamSettings> stream_settings(
-        capture_session_i->createOutputStreamSettings(STREAM_TYPE_EGL));
-    IEGLOutputStreamSettings *egl_stream_settings_i =
-        interface_cast<IEGLOutputStreamSettings>(stream_settings);
-    if (!egl_stream_settings_i) {
-        std::cerr << "[ERROR] Failed to create EglOutputStreamSettings" << std::endl;
-    }
-
-    egl_stream_settings_i->setPixelFormat(PIXEL_FMT_YCbCr_420_888);
-    egl_stream_settings_i->setResolution(Size2D<uint32_t>(640, 480));
-
-    outputStream_.reset(capture_session_i->createOutputStream(stream_settings.get()));
-
-    /* Create capture request and enable the output stream */
-    request_.reset(capture_session_i->createRequest());
-    IRequest *iRequest = interface_cast<IRequest>(request_);
-    if (!iRequest) {
-        std::cerr << "[ERROR] Failed to create Request" << std::endl;
-    }
-    iRequest->enableOutputStream(outputStream_.get());
-
-    ISourceSettings *iSourceSettings =
-        interface_cast<ISourceSettings>(iRequest->getSourceSettings());
-    if (!iSourceSettings) {
-        std::cerr << "[ERROR] Failed to get ISourceSettings interface" << std::endl;
-    }
-
-    // IAutoControlSettings *control_settings =
-    // interface_cast<IAutoControlSettings>(iRequest->getAutoControlSettings());
-
-    iSourceSettings->setSensorMode(sensor_modes[2]);
-    iSourceSettings->setFrameDurationRange(Range<uint64_t>(1e9 / 30));
-    FrameConsumer_.reset(FrameConsumer::create(outputStream_.get()));
-}
-
-void ArgusCamera::consumerThreadCallback(void) {
-    IEGLOutputStream *egl_output_stream =
-        interface_cast<IEGLOutputStream>(outputStream_);
-    IFrameConsumer *frame_consumer = interface_cast<IFrameConsumer>(FrameConsumer_);
-    if (!frame_consumer) {
-        std::cerr << "[ERROR] Failed to get IFrameConsumer Interface" << std::endl;
-        return;
-    }
-
-    if (egl_output_stream->waitUntilConnected(1 * 100000000) != Argus::STATUS_OK) {
-        std::cerr << "[ERROR] Stream failed to connect." << std::endl;
-        return;
-    }
-
-    std::cout << "[INFO] Argus Stream Capture is now ready" << std::endl;
-
-    int dma_buf;
-    NvBufSurface *buf_surface = new NvBufSurface();
-    Size2D<uint32_t> resolution(640, 480);
-    bool failed_aquire = false;
-
-    while (isCapturing) {
-        failed_aquire = false;
-        // Acquire frames
-        Argus::Status status;
-        UniqueObj<Frame> frame(frame_consumer->acquireFrame(1000000000, &status));
-
-        if (status == Argus::STATUS_TIMEOUT) {
-            failed_aquire = true;
-            std::cout << "[WARN] Failed to aquire frame after timeout" << std::endl;
-            break;
-        }
-
-        IFrame *iFrame = interface_cast<IFrame>(frame);
-        if (!iFrame) {
-            failed_aquire = true;
-            std::cout << "[Warn] Failed to get iframe: " << std::endl;
-            break;
-        }
-
-        NV::IImageNativeBuffer *iNativeBuffer =
-            interface_cast<NV::IImageNativeBuffer>(iFrame->getImage());
-        if (!iNativeBuffer) {
-            delete buf_surface;
-            std::cerr << "[ERROR] IImageNativeBuffer not supported by Image."
-                      << std::endl;
-            return;
-        }
-
-        if (!dma_buf) {
-            dma_buf = iNativeBuffer->createNvBuffer(egl_output_stream->getResolution(),
-                                                    NVBUF_COLOR_FORMAT_RGBA,
-                                                    NVBUF_LAYOUT_PITCH);
-
-            if (-1 == NvBufSurfaceFromFd(dma_buf, (void **)(&buf_surface))) {
-                delete buf_surface;
-                std::cerr << "[ERROR] Cannot get NvBufSurface from fd" << std::endl;
-                return;
-            }
-        } else if (iNativeBuffer->copyToNvBuffer(dma_buf) != STATUS_OK) {
-            delete buf_surface;
-            std::cerr << "[ERROR] Cannot get NvBufSurface from fd" << std::endl;
-            return;
-        }
-        if (!failed_aquire) {
-            std::vector<cv::Mat> processed_frame;
-            // Map and sync each buffer for CPU access
-            NvBufSurfaceMap(buf_surface, -1, 0, NVBUF_MAP_READ);
-            NvBufSurfaceSyncForCpu(buf_surface, -1, 0);
-
-            // Convert the buffer to a cv::Mat
-            cv::Mat imgbuf(
-                480, 640, CV_8UC4, buf_surface->surfaceList->mappedAddr.addr[0]);
-
-            // Convert from RGBA to BGR
-            cv::Mat display_img;
-            cvtColor(imgbuf, display_img, cv::COLOR_RGBA2BGR);
-
-            std::lock_guard<std::mutex> lock(
-                bufferMutex);  // Automatically locks and unlocks
-            buffer_.push(display_img);
-
-            // Unmap the buffer
-            NvBufSurfaceUnMap(buf_surface, -1, 0);
-        }
-    }
-}
-
-bool ArgusCamera::getLatestFrame(cv::Mat &frame) {
-    std::lock_guard<std::mutex> lock(bufferMutex);  // Automatically locks and unlocks
-    if (buffer_.empty()) {
-        return false;  // No frame available
-    }
-
-    // Copy or move the frame from the queue
-    frame = buffer_.front();  // This is a shallow copy, sharing reference to the image
-    buffer_.pop();            // Remove the frame from the queue
-
-    return true;
-}
-
-ArgusCamera::CameraState ArgusCamera::getCameraState() { return currentState; }
-
-CameraDevice *ArgusCamera::getCameraDeviceByID(int id) {
+CameraDevice *ArgusCamera::getCameraDeviceById(int id) {
     std::vector<CameraDevice *> devices;
-    ICameraProvider_->getCameraDevices(&devices);
+    ICameraProvider *iCameraProvider =
+        interface_cast<ICameraProvider>(argusState_.provider);
+
+    if (iCameraProvider == nullptr) {
+        logger_.error("Failed to obtain the ICameraProvider", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return nullptr;
+    }
+
+    iCameraProvider->getCameraDevices(&devices);
     if (devices.empty()) {
-        std::cerr << "[ERROR] Failed to get devices" << std::endl;
+        logger_.error("Failed to get camera devices ", loggerPrefix_);
+        setState_(CameraState::ERROR);
+        return nullptr;
     }
 
     return devices[id];
 }
 
-std::string ArgusCamera::getCameraStateAsString() {
-    switch (currentState) {
-        case NOT_INITIALIZED:
+std::string ArgusCamera::getStateString(CameraState &state) {
+    switch (state) {
+        case CameraState::NOT_INITIALIZED:
             return "NOT_INITIALIZED";
-        case INITIALIZING:
+        case CameraState::INITIALIZING:
             return "INITIALIZING";
-        case READY:
+        case CameraState::READY:
             return "READY";
-        case INITIALIZING_CAPTURE:
-            return "INITIALIZING_CAPTURE";
-        case CAPTURING:
-            return "CAPTURING";
-        case RESTARTING:
+        case CameraState::STOPPED:
+            return "STOPPED";
+        case CameraState::RUNNING:
+            return "RUNNING";
+        case CameraState::RESTARTING:
             return "RESTARTING";
-        case FAILURE:
-            return "FAILURE";
+        case CameraState::ERROR:
+            return "ERROR";
         default:
             return "UNKNOWN";
+    }
+}
+
+void ArgusCamera::setState_(CameraState newState) {
+    if (newState != state_) {
+        std::ostringstream oss;
+        oss << "State Transition : " << getStateString(state_) << " --> "
+            << getStateString(newState);
+        logger_.info(oss.str(), loggerPrefix_);
+
+        state_ = newState;
+    }
+}
+
+void ArgusCamera::setFrameCallback(FrameCallback cb) { frameCallback_ = std::move(cb); }
+
+void ArgusCamera::printSensorModes(std::vector<SensorMode *> &modes) {
+    size_t index = 0;
+    std::cout << "Camera " << config_.id << " Sensor Modes:\n";
+    for (auto mode : modes) {
+        ISensorMode *iMode = interface_cast<ISensorMode>(mode);
+
+        std::cout << "  Mode " << index << ":\n";
+        std::cout << "    Resolution: (" << iMode->getResolution()[0] << ", "
+                  << iMode->getResolution()[1] << ")\n";
+        std::cout << "    Sensor Type: " << iMode->getSensorModeType().getName()
+                  << "\n";
+        std::cout << "    Gain Range: (" << iMode->getAnalogGainRange()[0] << ", "
+                  << iMode->getAnalogGainRange()[1] << ")\n";
+        std::cout << "    Exposure Range: (" << iMode->getExposureTimeRange()[0] << ", "
+                  << iMode->getExposureTimeRange()[1] << ")\n";
+        std::cout << "    Frame Duration Range: (" << iMode->getFrameDurationRange()[0]
+                  << ", " << iMode->getFrameDurationRange()[1] << ")\n";
+        std::cout << "    HDR Ratio Range: (" << iMode->getHdrRatioRange()[0] << ", "
+                  << iMode->getHdrRatioRange()[1] << ")\n";
+        std::cout << "    Input Bit Depth: " << iMode->getInputBitDepth() << "\n";
+        std::cout << "    Output Bit Depth: " << iMode->getOutputBitDepth() << "\n";
+        std::cout << "    Bayer Phase: " << iMode->getBayerPhase().getName() << "\n";
+        std::cout << "\n";
+
+        index++;
     }
 }
 
