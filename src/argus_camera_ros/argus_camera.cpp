@@ -1,5 +1,9 @@
 #include "argus_camera_ros/argus_camera.hpp"
 
+#include <Argus/Ext/SensorTimestampTsc.h>
+#include <tegra.h>
+
+#include <algorithm>
 #include <cstdlib>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/highgui.hpp>
@@ -131,17 +135,54 @@ void ArgusCamera::captureLoop() {
     while (capturing_) {
         Argus::Status status;
         UniqueObj<Frame> frame(consumer->acquireFrame(1000000000, &status));
-        if (status == Argus::STATUS_TIMEOUT) continue;
+        if (status == Argus::STATUS_TIMEOUT) {
+            logger_.warn("Timeout reached after waiting for new camera frame",
+                         loggerPrefix_);
+            continue;
+        }
 
         IFrame *iFrame = interface_cast<IFrame>(frame);
         if (!iFrame) continue;
 
-        lastFrame_ = std::move(frame);  // Store the latest frame in buffer form
+        CaptureMetadata *captureMetadataLeft =
+            interface_cast<IArgusCaptureMetadata>(frame)->getMetadata();
+        ICaptureMetadata *iMetadataLeft =
+            interface_cast<ICaptureMetadata>(captureMetadataLeft);
+        if (captureMetadataLeft == nullptr || iMetadataLeft == nullptr) {
+            throw std::runtime_error(
+                "Sensor Capture Metadata has not been enabled or is not supported");
+        }
+
+        Ext::ISensorTimestampTsc *iSensorTS =
+            interface_cast<Ext::ISensorTimestampTsc>(captureMetadataLeft);
+
+        NV::IImageNativeBuffer *iNativeBuffer =
+            interface_cast<NV::IImageNativeBuffer>(iFrame->getImage());
+
+        if (!iNativeBuffer)
+            throw std::runtime_error("IImageNativeBuffer not supported.");
+
+        if (dmaBufFd == -1) {
+            dmaBufFd = iNativeBuffer->createNvBuffer(eglOutputStream->getResolution(),
+                                                     NVBUF_COLOR_FORMAT_RGBA,
+                                                     NVBUF_LAYOUT_PITCH);
+            if (NvBufSurfaceFromFd(dmaBufFd, (void **)(&bufSurface)) != 0)
+                throw std::runtime_error("Failed to get NvBufSurface.");
+        } else if (iNativeBuffer->copyToNvBuffer(dmaBufFd) != STATUS_OK) {
+            throw std::runtime_error("Failed to copy to NvBuffer.");
+        }
+
+        cv::Mat matImage = convertFrameToMat(iFrame, bufSurface);
+        std::unique_lock<std::mutex> lock(frameMutex_);
+        lastStampedFrame_.frame = std::move(matImage);
+        lastStampedFrame_.sofTS = iSensorTS->getSensorSofTimestampTsc();
+        lastStampedFrame_.eofTS = iSensorTS->getSensorEofTimestampTsc();
+        lock.unlock();
 
         if (frameCallback_) {
             try {
-                cv::Mat image = convertFrameToMat(iFrame, bufSurface, dmaBufFd);
-                frameCallback_(image);  // Call the hook with converted OpenCV frame
+                frameCallback_(
+                    lastStampedFrame_);  // Call the hook with converted OpenCV frame
             } catch (const std::exception &e) {
                 logger_.warn(std::string("Frame conversion failed: ") + e.what(),
                              loggerPrefix_);
@@ -153,23 +194,7 @@ void ArgusCamera::captureLoop() {
     if (dmaBufFd != -1) close(dmaBufFd);
 }
 
-cv::Mat ArgusCamera::convertFrameToMat(IFrame *iFrame,
-                                       NvBufSurface *bufSurface,
-                                       int dmaBufFd) {
-    NV::IImageNativeBuffer *iNativeBuffer =
-        interface_cast<NV::IImageNativeBuffer>(iFrame->getImage());
-
-    if (!iNativeBuffer) throw std::runtime_error("IImageNativeBuffer not supported.");
-
-    if (dmaBufFd == -1) {
-        dmaBufFd = iNativeBuffer->createNvBuffer(
-            Size2D<uint32_t>(640, 480), NVBUF_COLOR_FORMAT_RGBA, NVBUF_LAYOUT_PITCH);
-        if (NvBufSurfaceFromFd(dmaBufFd, (void **)(&bufSurface)) != 0)
-            throw std::runtime_error("Failed to get NvBufSurface.");
-    } else if (iNativeBuffer->copyToNvBuffer(dmaBufFd) != STATUS_OK) {
-        throw std::runtime_error("Failed to copy to NvBuffer.");
-    }
-
+cv::Mat ArgusCamera::convertFrameToMat(IFrame *iFrame, NvBufSurface *bufSurface) {
     NvBufSurfaceMap(bufSurface, -1, 0, NVBUF_MAP_READ);
     NvBufSurfaceSyncForCpu(bufSurface, -1, 0);
 
@@ -280,12 +305,14 @@ bool ArgusCamera::initializeFrameConsumer() {
     return true;
 }
 
-cv::Mat ArgusCamera::getLatestFrame() {
-    cv::Mat frame;
-
-    return frame;
+CVFrameStamped ArgusCamera::getLatestFrame() {
+    std::lock_guard<std::mutex> lock(frameMutex_);
+    return lastStampedFrame_;
 }
-void ArgusCamera::getLatestFrame(cv::Mat &out) {}
+void ArgusCamera::getLatestFrame(CVFrameStamped &out) {
+    std::lock_guard<std::mutex> lock(frameMutex_);
+    out = lastStampedFrame_;
+}
 
 CameraState ArgusCamera::getState() const { return state_; }
 

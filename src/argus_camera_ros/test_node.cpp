@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <memory>
+#include <rclcpp/time.hpp>
 
 #include "argus_camera_ros/argus_camera.hpp"
 
@@ -43,31 +44,26 @@ TestNode::TestNode()
 
     camera0->init();
     camera0->startCapture();
-    camera0->setFrameCallback([this](const cv::Mat& frame) {
+    camera0->setFrameCallback([this](const CVFrameStamped& stampedFrame) {
         auto msg =
-            cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", frame).toImageMsg();
-        msg->header.stamp = this->get_clock()->now();
+            cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", stampedFrame.frame)
+                .toImageMsg();
+        msg->header.stamp = rclcpp::Time(stampedFrame.sofTS);
         img_pub_.publish(msg);
     });
 
-    // pub_timer_ = this->create_wall_timer(std::chrono::milliseconds(1000),
+    // pub_timer_ = this->create_wall_timer(std::chrono::milliseconds(33),
     //                                      std::bind(&TestNode::callback, this));
 }
 
 void TestNode::callback() {
-    // cv::Mat frame;
-    // if (!camera_->getLatestFrame(frame)) {
-    //     std::cout << "NO FRAME: " << count << std::endl;
-    //     count++;
-    //     return;
-    // }
-    // count = 0;
-    // std_msgs::msg::Header header;
-    // header.stamp = this->get_clock()->now();
-    //
-    // header.frame_id = "camera";
-    // sensor_msgs::msg::Image::SharedPtr msg =
-    //     cv_bridge::CvImage(header, "bgr8", frame).toImageMsg();
-    //
-    // img_pub_.publish(msg);
+    CVFrameStamped stampedFrame = camera0->getLatestFrame();
+    std_msgs::msg::Header header;
+    header.stamp = rclcpp::Time(stampedFrame.sofTS);
+    header.frame_id = "camera";
+
+    sensor_msgs::msg::Image::SharedPtr msg =
+        cv_bridge::CvImage(header, "bgr8", stampedFrame.frame).toImageMsg();
+
+    img_pub_.publish(msg);
 }

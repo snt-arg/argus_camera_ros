@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -50,9 +51,21 @@ struct ArgusState {
     UniqueObj<Request> request;
 };
 
+struct FrameStamped {
+    IFrame* iFrame;
+    uint64_t sofTS;
+    uint64_t eofTS;
+};
+
+struct CVFrameStamped {
+    cv::Mat frame;
+    uint64_t sofTS;
+    uint64_t eofTS;
+};
+
 class ArgusCamera {
    public:
-    using FrameCallback = std::function<void(const cv::Mat&)>;
+    using FrameCallback = std::function<void(const CVFrameStamped&)>;
 
     ArgusCamera(CameraProvider* provider, const CameraConfig& config);
     ArgusCamera(CameraProvider* provider, const CameraConfig& config, Logger& logger);
@@ -65,8 +78,8 @@ class ArgusCamera {
     bool restartCapture();
 
     // Accessors
-    cv::Mat getLatestFrame();
-    void getLatestFrame(cv::Mat& out);
+    CVFrameStamped getLatestFrame();
+    void getLatestFrame(CVFrameStamped& out);
     void setFrameCallback(FrameCallback cb);
     CameraState getState() const;
 
@@ -83,7 +96,7 @@ class ArgusCamera {
     FrameCallback frameCallback_ = nullptr;
     std::thread captureThread_;
     std::atomic<bool> capturing_{false};
-    Argus::UniqueObj<Frame> lastFrame_;
+    CVFrameStamped lastStampedFrame_;
 
     // State
     CameraState state_ = CameraState::NOT_INITIALIZED;
@@ -104,7 +117,7 @@ class ArgusCamera {
     bool configureRequest(const std::vector<SensorMode*>& sensorModes);
     bool initializeFrameConsumer();
 
-    cv::Mat convertFrameToMat(IFrame* iFrame, NvBufSurface* bufSurface, int dmaBufFd);
+    cv::Mat convertFrameToMat(IFrame* iFrame, NvBufSurface* bufSurface);
 
     // Logging
     Logger logger_;
