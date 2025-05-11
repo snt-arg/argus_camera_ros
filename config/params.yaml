@@ -1,17 +1,14 @@
-argus_camera_node:
+multicamera_node:
     ros__parameters:
-        devices: [0, 1, 2, 3]
-        image_width: 640
-        image_height: 480
-        framerate: 30
-        sensor_mode: 2
-        buffer_size: 8
+        camera_settings:
+            mode: 2
+            fps: 20
+            resolution: [640, 480]
+            exposure: [480000, 400000000]
+            gain: [1, 16]
+            ae_lock: false
+            awb_lock: true
 
-        frame_ids:
-            - front_left_camera
-            - front_right_camera
-            - side_right_camera
-            - side_left_camera
         camera_names:
             - "front_left"
             - "front_right"
