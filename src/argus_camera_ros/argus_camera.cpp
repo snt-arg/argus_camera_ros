@@ -12,9 +12,9 @@
 
 namespace argus_camera_ros {
 
-ArgusCamera::ArgusCamera(CameraProvider *provider, const CameraConfig &config)
-    : config_(config) {
-    loggerPrefix_ = "[Camera(" + std::to_string(config_.id) + ")] ";
+ArgusCamera::ArgusCamera(int id, CameraProvider *provider, const CameraConfig &config)
+    : id_(id), config_(config) {
+    loggerPrefix_ = "[Camera(" + std::to_string(id_) + ")] ";
     logger_.info("ArgusCamera instance created", loggerPrefix_);
     if (provider == nullptr) {
         logger_.error("Received CameraProvider is a nullptr", loggerPrefix_);
@@ -24,11 +24,12 @@ ArgusCamera::ArgusCamera(CameraProvider *provider, const CameraConfig &config)
     argusState_.provider.reset(provider);
 }
 
-ArgusCamera::ArgusCamera(CameraProvider *provider,
+ArgusCamera::ArgusCamera(int id,
+                         CameraProvider *provider,
                          const CameraConfig &config,
                          Logger &logger)
-    : config_(config), logger_(logger) {
-    loggerPrefix_ = "[Camera(" + std::to_string(config_.id) + ")] ";
+    : id_(id), config_(config), logger_(logger) {
+    loggerPrefix_ = "[Camera(" + std::to_string(id_) + ")] ";
     logger_.info("Creating ArgusCamera instance", loggerPrefix_);
 
     if (provider == nullptr) {
@@ -49,14 +50,14 @@ bool ArgusCamera::init(void) {
     logger_.info("Initializing Argus Camera", loggerPrefix_);
     setState_(CameraState::INITIALIZING);
 
-    CameraDevice *cameraDevice = getCameraDeviceById(config_.id);
+    CameraDevice *cameraDevice = getCameraDeviceById(id_);
     if (cameraDevice == nullptr) return false;
 
     std::vector<SensorMode *> sensorModes = getCameraSensorModes(cameraDevice);
     if (sensorModes.empty()) return false;
 
     // Print available sensor modes
-    printSensorModes(sensorModes);
+    // printSensorModes(sensorModes);
 
     if (!setupCamera(cameraDevice, sensorModes)) return false;
 
@@ -120,7 +121,7 @@ void ArgusCamera::captureLoop() {
     IFrameConsumer *consumer = interface_cast<IFrameConsumer>(frameConsumer_);
 
     if (!consumer ||
-        eglOutputStream->waitUntilConnected(1 * 100000000) != Argus::STATUS_OK) {
+        eglOutputStream->waitUntilConnected(1 * ONE_NS) != Argus::STATUS_OK) {
         logger_.error("Stream or Consumer setup failed.", loggerPrefix_);
         capturing_ = false;
         setState_(CameraState::ERROR);
@@ -198,7 +199,10 @@ cv::Mat ArgusCamera::convertFrameToMat(IFrame *iFrame, NvBufSurface *bufSurface)
     NvBufSurfaceMap(bufSurface, -1, 0, NVBUF_MAP_READ);
     NvBufSurfaceSyncForCpu(bufSurface, -1, 0);
 
-    cv::Mat rgba(480, 640, CV_8UC4, bufSurface->surfaceList->mappedAddr.addr[0]);
+    cv::Mat rgba(config_.resolution.height(),
+                 config_.resolution.width(),
+                 CV_8UC4,
+                 bufSurface->surfaceList->mappedAddr.addr[0]);
     cv::Mat bgr;
     cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
 
@@ -243,7 +247,7 @@ bool ArgusCamera::configureOutputStream() {
     }
 
     iEGLStreamSettings->setPixelFormat(PIXEL_FMT_YCbCr_420_888);
-    iEGLStreamSettings->setResolution(Size2D<uint32_t>(640, 480));
+    iEGLStreamSettings->setResolution(config_.resolution);
     iEGLStreamSettings->setMode(EGL_STREAM_MODE_FIFO);
     iEGLStreamSettings->setFifoLength(4);
     iEGLStreamSettings->setMetadataEnable(true);
@@ -290,7 +294,14 @@ bool ArgusCamera::configureRequest(const std::vector<SensorMode *> &sensorModes)
     }
 
     iSourceSettings->setSensorMode(sensorModes[config_.mode]);
-    iSourceSettings->setFrameDurationRange(Range<uint64_t>(1e9 / 30));
+    iSourceSettings->setFrameDurationRange(Range<uint64_t>(HZ_TO_NS(config_.fps)));
+    iSourceSettings->setExposureTimeRange(config_.exposure);
+    iSourceSettings->setGainRange(config_.gain);
+    // iSourceSettings->setApertureFNumber();
+    // iSourceSettings->setAperturePosition();
+
+    iAutoControlSettings->setAeLock(config_.aeLock);
+    iAutoControlSettings->setAwbLock(config_.awbLock);
 
     return true;
 }
@@ -395,7 +406,7 @@ void ArgusCamera::setFrameCallback(FrameCallback cb) { frameCallback_ = std::mov
 
 void ArgusCamera::printSensorModes(std::vector<SensorMode *> &modes) {
     size_t index = 0;
-    std::cout << "Camera " << config_.id << " Sensor Modes:\n";
+    std::cout << "Camera " << id_ << " Sensor Modes:\n";
     for (auto mode : modes) {
         ISensorMode *iMode = interface_cast<ISensorMode>(mode);
 

@@ -37,8 +37,14 @@ TestNode::TestNode()
 
     logger.info("Starting node");
 
-    CameraConfig config0 = {.id = 0, .mode = 2, .width = 640, .height = 480, .fps = 30};
-    camera0 = std::make_unique<ArgusCamera>(cameraProvider.get(), config0, logger);
+    CameraConfig config0 = {.mode = 2,
+                            .fps = 30,
+                            .resolution = {640, 480},
+                            .exposure = {480000, 400000000},
+                            .gain = {1, 16},
+                            .aeLock = false,
+                            .awbLock = true};
+    camera0 = std::make_unique<ArgusCamera>(0, cameraProvider.get(), config0, logger);
     img_it_ = std::make_shared<image_transport::ImageTransport>(node_handle_);
     img_pub_ = img_it_->advertise("camera/image_raw", 10);
 

@@ -23,6 +23,10 @@ namespace argus_camera_ros {
 using namespace EGLStream;
 using namespace Argus;
 
+#define ONE_NS 1e9
+#define HZ_TO_MS(hz) (1000 / hz)
+#define HZ_TO_NS(hz) (ONE_NS / hz)
+
 enum class CameraState {
     NOT_INITIALIZED,
     INITIALIZING,
@@ -34,14 +38,13 @@ enum class CameraState {
 };
 
 struct CameraConfig {
-    int id;
     int mode;
-    int width;
-    int height;
-    float fps;
-    // TODO: Sensor settings
-    // float exposureTime;  // in seconds
-    // float gain;
+    int fps;
+    Size2D<uint32_t> resolution;
+    Range<uint64_t> exposure;
+    Range<float> gain;
+    bool aeLock;
+    bool awbLock;
 };
 
 struct ArgusState {
@@ -67,8 +70,11 @@ class ArgusCamera {
    public:
     using FrameCallback = std::function<void(const CVFrameStamped&)>;
 
-    ArgusCamera(CameraProvider* provider, const CameraConfig& config);
-    ArgusCamera(CameraProvider* provider, const CameraConfig& config, Logger& logger);
+    ArgusCamera(int id, CameraProvider* provider, const CameraConfig& config);
+    ArgusCamera(int id,
+                CameraProvider* provider,
+                const CameraConfig& config,
+                Logger& logger);
     ~ArgusCamera();
 
     // Lifecycle
@@ -85,6 +91,7 @@ class ArgusCamera {
 
    private:
     // Configuration
+    int id_;
     CameraConfig config_;
     CameraProvider* provider_;
 
@@ -104,13 +111,12 @@ class ArgusCamera {
     std::string getStateString(CameraState& state);
 
     // Helpers
-    bool setupCamera(CameraDevice* cameraDevice, std::vector<SensorMode*>& sensorModes);
     CameraDevice* getCameraDeviceById(int id);
     std::vector<SensorMode*> getCameraSensorModes(CameraDevice* cameraDevice);
     void captureLoop();
-    bool readFrame(cv::Mat& out);
     void printSensorModes(std::vector<SensorMode*>& modes);
 
+    bool setupCamera(CameraDevice* cameraDevice, std::vector<SensorMode*>& sensorModes);
     bool createCaptureSession(CameraDevice* cameraDevice);
     bool configureOutputStream();
     bool createCaptureRequest();
@@ -118,6 +124,7 @@ class ArgusCamera {
     bool initializeFrameConsumer();
 
     cv::Mat convertFrameToMat(IFrame* iFrame, NvBufSurface* bufSurface);
+    bool readFrame(cv::Mat& out);
 
     // Logging
     Logger logger_;
