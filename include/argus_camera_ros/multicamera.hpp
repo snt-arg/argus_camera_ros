@@ -52,6 +52,9 @@ class MultiCameraNode : public rclcpp::Node {
     rclcpp::TimerBase::SharedPtr pubTimer_;
 
     Logger logger_;
+
+    // Configuration
+    bool useRosTime;
 };
 
 }  // namespace argus_camera_ros

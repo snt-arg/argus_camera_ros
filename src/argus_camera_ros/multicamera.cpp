@@ -10,7 +10,8 @@ namespace argus_camera_ros {
 
 MultiCameraNode::MultiCameraNode()
     : Node("multicamera_node"),
-      nodeHandle_(std::shared_ptr<MultiCameraNode>(this, [](auto*) {})) {
+      nodeHandle_(std::shared_ptr<MultiCameraNode>(this, [](auto*) {})),
+      useRosTime(false) {
     setupLogger();
 
     declareParameters();
@@ -79,9 +80,14 @@ void MultiCameraNode::publishImageCallback(void) {
 void MultiCameraNode::publishImage(const int cameraIdx,
                                    const CVFrameStamped& stampedFrame) {
     std_msgs::msg::Header header;
-    // TODO: add a param to switch between ros time and HW time
-    header.stamp = rclcpp::Time(stampedFrame.sofTS);
     header.frame_id = cameraNames_[cameraIdx];
+
+    // Set timestamp either from Tegra Timestamp (HW) or rclcpp::Time
+    if (useRosTime) {
+        header.stamp = get_clock().now();
+    } else {
+        header.stamp = rclcpp::Time(stampedFrame.sofTS);
+    }
 
     if (stampedFrame.frame.empty()) {
         RCLCPP_DEBUG(get_logger(), "EMPTY");
@@ -140,6 +146,8 @@ void MultiCameraNode::declareParameters(void) {
                            "package://argus_camera_ros/config/front_right_info.yaml",
                            "package://argus_camera_ros/config/right_info.yaml",
                            "package://argus_camera_ros/config/left_info.yaml"}));
+
+    declare_parameter("use_ros_time", false);
 }
 
 void MultiCameraNode::readParameters(void) {
@@ -181,6 +189,8 @@ void MultiCameraNode::readParameters(void) {
 
     get_parameter("camera_names", cameraNames_);
     get_parameter("camera_urls", cameraInfoUrls_);
+
+    get_parameter("use_ros_time", useRosTime);
 }
 
 }  // namespace argus_camera_ros

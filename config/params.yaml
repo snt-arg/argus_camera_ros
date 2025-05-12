@@ -1,5 +1,6 @@
 multicamera_node:
     ros__parameters:
+        use_ros_time: false
         camera_settings:
             mode: 2
             fps: 20
