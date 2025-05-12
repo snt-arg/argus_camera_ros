@@ -1,3 +1,14 @@
+/**
+ * @file include/argus_camera_ros/multicamera.hpp
+ * @brief Defines a ROS node which controls 4 instances of ArgusCamera and publishes
+ * their camera frames with their respective CameraInfo.
+ *
+ * No sync is applied.
+ */
+
+#ifndef MULTICAMERA_HPP
+#define MULTICAMERA_HPP
+
 #include <camera_info_manager/camera_info_manager.hpp>
 #include <image_transport/image_transport.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -58,3 +69,5 @@ class MultiCameraNode : public rclcpp::Node {
 };
 
 }  // namespace argus_camera_ros
+
+#endif  // !MULTICAMERA_HPP

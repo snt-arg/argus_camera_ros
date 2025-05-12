@@ -1,3 +1,9 @@
+/**
+ * @file include/argus_camera_ros/stdout_silencer.hpp
+ * @brief Defines a hack to remove from stdout low-level related warnings coming from
+ * libArgus.
+ */
+
 #ifndef STDOUT_SILENCER_HPP
 #define STDOUT_SILENCER_HPP
 #include <fcntl.h>

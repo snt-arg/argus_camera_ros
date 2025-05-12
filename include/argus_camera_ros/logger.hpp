@@ -1,3 +1,9 @@
+/**
+ * @file include/argus_camera_ros/logger.hpp
+ * @brief Defines a simple logger which can work with rclcpp::Logger or standalone
+ * to be used mainly for the ArgusCamera class.
+ */
+
 #ifndef LOGGER_HPP
 #define LOGGER_HPP
 
