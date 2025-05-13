@@ -180,13 +180,14 @@ void ArgusCamera::captureLoop() {
         lastStampedFrame_.eofTS = iSensorTS->getSensorEofTimestampTsc();
         lock.unlock();
 
-        if (frameCallback_) {
+        if (newFrameHook_) {
             try {
-                frameCallback_(
-                    lastStampedFrame_);  // Call the hook with converted OpenCV frame
+                newFrameHook_(lastStampedFrame_);
             } catch (const std::exception &e) {
-                logger_.warn(std::string("Frame conversion failed: ") + e.what(),
-                             loggerPrefix_);
+                logger_.error(
+                    std::string("Failed to run hook, removing it. Cause: ") + e.what(),
+                    loggerPrefix_);
+                newFrameHook_ = nullptr;
             }
         }
     }
@@ -402,7 +403,9 @@ void ArgusCamera::setState_(CameraState newState) {
     }
 }
 
-void ArgusCamera::setFrameCallback(FrameCallback cb) { frameCallback_ = std::move(cb); }
+void ArgusCamera::setNewFrameHook(NewFrameHookFunc cb) {
+    newFrameHook_ = std::move(cb);
+}
 
 void ArgusCamera::printSensorModes(std::vector<SensorMode *> &modes) {
     size_t index = 0;

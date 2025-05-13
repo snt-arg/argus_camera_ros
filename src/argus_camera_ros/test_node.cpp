@@ -50,7 +50,7 @@ TestNode::TestNode()
 
     camera0->init();
     camera0->startCapture();
-    camera0->setFrameCallback([this](const CVFrameStamped& stampedFrame) {
+    camera0->setNewFrameHook([this](const CVFrameStamped& stampedFrame) {
         auto msg =
             cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", stampedFrame.frame)
                 .toImageMsg();

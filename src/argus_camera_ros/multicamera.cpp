@@ -43,7 +43,7 @@ void MultiCameraNode::initCameras(void) {
         if (!camera->init()) {
             throw std::runtime_error("Failed to initilize a camera");
         }
-        camera->setFrameCallback([i, this](const CVFrameStamped& stampedFrame) {
+        camera->setNewFrameHook([i, this](const CVFrameStamped& stampedFrame) {
             publishImage(i, stampedFrame);
         });
     }

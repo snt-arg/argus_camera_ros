@@ -107,9 +107,9 @@ struct CVFrameStamped {
 class ArgusCamera {
    public:
     /**
-     * @brief Callback/Hook type for receiving captured frames.
+     * @brief Hook type for receiving captured frames.
      */
-    using FrameCallback = std::function<void(const CVFrameStamped&)>;
+    using NewFrameHookFunc = std::function<void(const CVFrameStamped&)>;
 
     /**
      * @brief Constructor.
@@ -182,10 +182,10 @@ class ArgusCamera {
     CameraState getState() const;
 
     /**
-     * @brief Registers a callback to be invoked each time a new frame is captured.
+     * @brief Registers a hook to be invoked each time a new frame is captured.
      * @param cb Function to call with the captured frame.
      */
-    void setFrameCallback(FrameCallback cb);
+    void setNewFrameHook(NewFrameHookFunc cb);
 
     void printSensorModes(std::vector<SensorMode*>& modes);
 
@@ -199,11 +199,11 @@ class ArgusCamera {
     UniqueObj<FrameConsumer> frameConsumer_;  ///< Frame consumer for reading frames
 
     // Frame handling
-    std::mutex frameMutex_;                  ///< Mutex for thread-safe frame access
-    FrameCallback frameCallback_ = nullptr;  ///< Optional frame callback
-    std::thread captureThread_;              ///< Capture thread
-    std::atomic<bool> capturing_{false};     ///< Whether capture is active
-    CVFrameStamped lastStampedFrame_;        ///< Last captured frame
+    std::mutex frameMutex_;                    ///< Mutex for thread-safe frame access
+    NewFrameHookFunc newFrameHook_ = nullptr;  ///< Optional frame callback
+    std::thread captureThread_;                ///< Capture thread
+    std::atomic<bool> capturing_{false};       ///< Whether capture is active
+    CVFrameStamped lastStampedFrame_;          ///< Last captured frame
 
     // State tracking
     CameraState state_ = CameraState::NOT_INITIALIZED;
