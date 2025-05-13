@@ -13,7 +13,7 @@ def create_argus_camera_node(ld: LaunchDescription) -> None:
 
     argus_camera_node = Node(
         package="argus_camera_ros",
-        executable="argus_camera_node",
+        executable="multicamera_node",
         parameters=[params_file],
         output="screen",
     )
