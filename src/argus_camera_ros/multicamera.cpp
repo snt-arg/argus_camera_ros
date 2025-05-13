@@ -137,15 +137,15 @@ void MultiCameraNode::declareParameters(void) {
     declare_parameter("camera_settings.ae_lock", false);
     declare_parameter("camera_settings.awb_lock", true);
 
-    declare_parameter(
-        "camera_names",
-        std::vector<std::string>({"front_left", "front_right", "right", "left"}));
+    declare_parameter("camera_names",
+                      std::vector<std::string>(
+                          {"front_left", "front_right", "side_right", "side_left"}));
     declare_parameter("camera_urls",
                       std::vector<std::string>(
                           {"package://argus_camera_ros/config/front_left_info.yaml",
                            "package://argus_camera_ros/config/front_right_info.yaml",
-                           "package://argus_camera_ros/config/right_info.yaml",
-                           "package://argus_camera_ros/config/left_info.yaml"}));
+                           "package://argus_camera_ros/config/side_right_info.yaml",
+                           "package://argus_camera_ros/config/side_left_info.yaml"}));
 
     declare_parameter("use_ros_time", false);
 }
