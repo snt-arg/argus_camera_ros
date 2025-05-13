@@ -24,7 +24,9 @@ using std::shared_ptr;
 using std::string;
 using std::unique_ptr;
 using std::vector;
-//
+
+enum TimestampMode { TIME_FROM_TSC = 0, TIME_FROM_PTP = 1, TIME_FROM_ROS = 2 };
+
 class MultiCameraNode : public rclcpp::Node {
    public:
     MultiCameraNode();
@@ -42,6 +44,23 @@ class MultiCameraNode : public rclcpp::Node {
 
     void publishImage(const int cameraIdx, const CVFrameStamped &stampedFrame);
     void publishCameraInfo(const int cameraIdx, const std_msgs::msg::Header &header);
+
+    TimestampMode convertStringToTimestampMode(std::string mode) {
+        TimestampMode tsMode;
+
+        if (mode == "TIME_FROM_TSC") {
+            tsMode = TIME_FROM_TSC;
+        } else if (mode == "TIME_FROM_PTP") {
+            tsMode = TIME_FROM_PTP;
+        } else if (mode == "TIME_FROM_ROS") {
+            tsMode = TIME_FROM_ROS;
+        } else {
+            throw std::runtime_error(
+                "Unknown timestamp mode: " + mode +
+                "Availabe are TIME_FROM_TSC, TIME_FROM_PTP and TIME_FROM_ROS.");
+        }
+        return tsMode;
+    }
 
    protected:
     // Image Transport
@@ -64,8 +83,8 @@ class MultiCameraNode : public rclcpp::Node {
 
     Logger logger_;
 
-    // Configuration
-    bool useRosTime;
+    // Timestamps
+    TimestampMode timestampMode = TimestampMode::TIME_FROM_TSC;
 };
 
 }  // namespace argus_camera_ros

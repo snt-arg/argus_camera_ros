@@ -1,6 +1,12 @@
 multicamera_node:
     ros__parameters:
-        use_ros_time: false
+        # timestamp_mode is used to decide which timestamp each camera frame has when published.
+        # The available modes are:
+        #   - TIME_FROM_TSC: Time from Tegra Wide timestamp (TSC) will be used, which translates to SOF TS.
+        #   - TIME_FROM_PTP: Time from PTP which is syncronized with TSC
+        #   - TIME_FROM_ROS: This used ROS time. Whenever a frame is published, this will
+        #     be stamped before being published with ROS time.
+        timestamp_mode: TIME_FROM_PTP
         camera_settings:
             mode: 2
             fps: 20
@@ -13,10 +19,10 @@ multicamera_node:
         camera_names:
             - "front_left"
             - "front_right"
-            - "side_right"
             - "side_left"
+            - "side_right"
         camera_urls:
             - "package://argus_camera_ros/config/front_left_info.yaml"
             - "package://argus_camera_ros/config/front_right_info.yaml"
-            - "package://argus_camera_ros/config/side_right_info.yaml"
             - "package://argus_camera_ros/config/side_left_info.yaml"
+            - "package://argus_camera_ros/config/side_right_info.yaml"
