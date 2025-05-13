@@ -145,10 +145,10 @@ void MultiCameraNode::declareParameters(void) {
                           {"front_left", "front_right", "side_right", "side_left"}));
     declare_parameter("camera_urls",
                       std::vector<std::string>(
-                          {"package://argus_camera_ros/config/front_left_info.yaml",
-                           "package://argus_camera_ros/config/front_right_info.yaml",
-                           "package://argus_camera_ros/config/side_right_info.yaml",
-                           "package://argus_camera_ros/config/side_left_info.yaml"}));
+                          {"package://argus_camera_ros/config/calib/front_left_info.yaml",
+                           "package://argus_camera_ros/config/calib/front_right_info.yaml",
+                           "package://argus_camera_ros/config/calib/side_right_info.yaml",
+                           "package://argus_camera_ros/config/calib/side_left_info.yaml"}));
 
     declare_parameter("timestamp_mode", "TIME_FROM_TSC");
 }
