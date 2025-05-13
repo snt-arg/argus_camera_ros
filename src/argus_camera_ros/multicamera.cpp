@@ -2,8 +2,6 @@
 
 #include <cv_bridge/cv_bridge.h>
 
-#include <opencv2/highgui.hpp>
-
 #include "argus_camera_ros/argus_camera.hpp"
 
 namespace argus_camera_ros {
