@@ -15,6 +15,7 @@
 
 #include "argus_camera_ros/argus_camera.hpp"
 #include "argus_camera_ros/logger.hpp"
+#include "argus_camera_ros/ptp_converter.hpp"
 
 namespace argus_camera_ros {
 
@@ -85,6 +86,7 @@ class MultiCameraNode : public rclcpp::Node {
 
     // Timestamps
     TimestampMode timestampMode = TimestampMode::TIME_FROM_TSC;
+    PTPConverter ptpConverter;
 };
 
 }  // namespace argus_camera_ros
