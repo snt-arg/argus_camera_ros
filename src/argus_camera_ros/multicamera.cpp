@@ -84,7 +84,7 @@ void MultiCameraNode::publishImage(const int cameraIdx,
 
     // Set timestamp either from Tegra Timestamp (HW) or rclcpp::Time
     if (useRosTime) {
-        header.stamp = get_clock().now();
+        header.stamp = get_clock()->now();
     } else {
         header.stamp = rclcpp::Time(stampedFrame.sofTS);
     }
