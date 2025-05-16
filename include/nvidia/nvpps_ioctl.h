@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ *
+ * Taken from /usr/src/nvidia/nvidia-oot/include/uapi/linux/nvpps_ioctl.h
  */
 
 #ifndef __UAPI_NVPPS_IOCTL_H__
