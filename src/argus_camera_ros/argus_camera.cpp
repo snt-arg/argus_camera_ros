@@ -197,13 +197,33 @@ void ArgusCamera::captureLoop() {
 }
 
 cv::Mat ArgusCamera::convertFrameToMat(IFrame *iFrame, NvBufSurface *bufSurface) {
-    NvBufSurfaceMap(bufSurface, -1, 0, NVBUF_MAP_READ);
-    NvBufSurfaceSyncForCpu(bufSurface, -1, 0);
+    if (NvBufSurfaceMap(bufSurface, -1, 0, NVBUF_MAP_READ) != 0) {
+        logger_.error("Failed to map NvBufSurface.");
+        return cv::Mat::zeros(
+            config_.resolution.height(), config_.resolution.width(), CV_8UC3);
+    }
+
+    if (NvBufSurfaceSyncForCpu(bufSurface, -1, 0) != 0) {
+        NvBufSurfaceUnMap(bufSurface, -1, 0);
+        logger_.error("Failed to sync NvBufSurface for CPU.");
+        return cv::Mat::zeros(
+            config_.resolution.height(), config_.resolution.width(), CV_8UC3);
+    }
 
     cv::Mat rgba(config_.resolution.height(),
                  config_.resolution.width(),
                  CV_8UC4,
                  bufSurface->surfaceList->mappedAddr.addr[0]);
+
+    // Convert to BGR and clone to CPU-owned memory
+    // cv::Mat bgr, bgr_clone;
+    // cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
+    // bgr_clone = bgr.clone();  // clone to ensure safe memory
+
+    // NvBufSurfaceUnMap(bufSurface, -1, 0);
+    //
+    // return bgr_clone;
+
     cv::Mat bgr;
     cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
 
