@@ -52,10 +52,11 @@ void SingleCameraNode::initImageTransport(void) {
 
     std::string topicName = "/camera/" + cameraName_ + "/image_raw";
 
-    imgPub_ = it_->advertise(topicName, 10);
+    int queueSize = 1;
+    imgPub_ = it_->advertise(topicName, queueSize);
 
     cameraInfoPub_ = create_publisher<sensor_msgs::msg::CameraInfo>(
-        "/camera/" + cameraName_ + "/camera_info", 10);
+        "/camera/" + cameraName_ + "/camera_info", queueSize);
 
     cameraInfo_ = std::make_unique<camera_info_manager::CameraInfoManager>(
         this, cameraName_, cameraInfoUrl_);

@@ -53,10 +53,12 @@ void MultiCameraNode::initImageTransport(void) {
     for (int i = 0; i < cameras_.size(); i++) {
         std::string topicName = "/camera/" + cameraNames_[i] + "/image_raw";
 
-        imgPubs_.push_back(it_->advertise(topicName, 10));
+        int queueSize = 1;
+
+        imgPubs_.push_back(it_->advertise(topicName, queueSize));
 
         cameraInfoPubs_.push_back(create_publisher<sensor_msgs::msg::CameraInfo>(
-            "/camera/" + cameraNames_[i] + "/camera_info", 10));
+            "/camera/" + cameraNames_[i] + "/camera_info", queueSize));
 
         cameraInfos_.push_back(std::make_unique<camera_info_manager::CameraInfoManager>(
             this, cameraNames_[i], cameraInfoUrls_[i]));
