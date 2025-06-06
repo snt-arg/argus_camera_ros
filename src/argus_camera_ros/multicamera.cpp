@@ -1,6 +1,7 @@
 #include "argus_camera_ros/multicamera.hpp"
 
 #include <cv_bridge/cv_bridge.h>
+#include <iostream>
 
 #include "argus_camera_ros/argus_camera.hpp"
 
@@ -29,7 +30,9 @@ void MultiCameraNode::startCapturing(void) {
 }
 
 void MultiCameraNode::initCameras(void) {
+    stdoutSilencer_.enable();
     cameraProvider_ = UniqueObj<CameraProvider>(CameraProvider::create());
+    stdoutSilencer_.disable();
 
     for (int i = 0; i < NUM_CAMS; i++) {
         cameras_.push_back(
@@ -195,8 +198,13 @@ void MultiCameraNode::readParameters(void) {
 
     get_parameter("camera_names", cameraNames_);
     get_parameter("camera_urls", cameraInfoUrls_);
+
+    std::string timestampModeStr = get_parameter("timestamp_mode").as_string();
+
     timestampMode =
-        convertStringToTimestampMode(get_parameter("timestamp_mode").as_string());
+        convertStringToTimestampMode(timestampModeStr);
+
+    RCLCPP_INFO(get_logger(), "Using %s timestamp mode", timestampModeStr.c_str());
 }
 
 }  // namespace argus_camera_ros

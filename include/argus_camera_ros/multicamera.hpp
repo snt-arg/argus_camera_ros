@@ -16,6 +16,7 @@
 #include "argus_camera_ros/argus_camera.hpp"
 #include "argus_camera_ros/logger.hpp"
 #include "argus_camera_ros/ptp_converter.hpp"
+#include "argus_camera_ros/stdout_silencer.hpp"
 
 namespace argus_camera_ros {
 
@@ -62,6 +63,9 @@ class MultiCameraNode : public rclcpp::Node {
         }
         return tsMode;
     }
+
+   private:
+    StdoutSilencer stdoutSilencer_;
 
    protected:
     // Image Transport
