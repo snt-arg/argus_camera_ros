@@ -83,6 +83,7 @@ class MultiCameraNode : public rclcpp::Node {
     UniqueObj<CameraProvider> cameraProvider_;
     vector<shared_ptr<ArgusCamera>> cameras_;
     CameraConfig cameraConfig_;
+    bool printCameraModes_;
 
     rclcpp::TimerBase::SharedPtr pubTimer_;
 

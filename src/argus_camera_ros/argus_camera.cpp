@@ -46,7 +46,7 @@ ArgusCamera::~ArgusCamera() {
     stopCapture();
 }
 
-bool ArgusCamera::init(void) {
+bool ArgusCamera::init(bool printModes) {
     logger_.info("Initializing Argus Camera", loggerPrefix_);
     setState_(CameraState::INITIALIZING);
 
@@ -57,7 +57,7 @@ bool ArgusCamera::init(void) {
     if (sensorModes.empty()) return false;
 
     // Print available sensor modes
-    // printSensorModes(sensorModes);
+    if(printModes) printSensorModes(sensorModes);
 
     if (!setupCamera(cameraDevice, sensorModes)) return false;
 

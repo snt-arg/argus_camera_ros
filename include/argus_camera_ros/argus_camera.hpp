@@ -142,7 +142,7 @@ class ArgusCamera {
      * @brief Initializes the camera and prepares it for capture.
      * @return True if initialization succeeds.
      */
-    bool init();
+    bool init(bool printModes=false);
 
     /**
      * @brief Starts the frame capture loop in a background thread.

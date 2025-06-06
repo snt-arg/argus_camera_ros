@@ -41,7 +41,7 @@ void MultiCameraNode::initCameras(void) {
 
     for (int i = 0; i < cameras_.size(); i++) {
         auto camera = cameras_[i];
-        if (!camera->init()) {
+        if (!camera->init(printCameraModes_)) {
             throw std::runtime_error("Failed to initilize a camera");
         }
         camera->setNewFrameHook([i, this](const CVFrameStamped& stampedFrame) {
@@ -157,6 +157,7 @@ void MultiCameraNode::declareParameters(void) {
              "package://argus_camera_ros/config/calib/side_left_info.yaml"}));
 
     declare_parameter("timestamp_mode", "TIME_FROM_TSC");
+    declare_parameter("camera_settings.print_modes", false);
 }
 
 void MultiCameraNode::readParameters(void) {
@@ -198,6 +199,7 @@ void MultiCameraNode::readParameters(void) {
 
     get_parameter("camera_names", cameraNames_);
     get_parameter("camera_urls", cameraInfoUrls_);
+    get_parameter("camera_settings.print_modes", printCameraModes_);
 
     std::string timestampModeStr = get_parameter("timestamp_mode").as_string();
 
