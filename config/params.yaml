@@ -14,7 +14,7 @@ multicamera_node:
             exposure: [480000, 4000000]
             gain: [1, 16]
             ae_lock: false
-            awb_lock: true
+            awb_lock: false
             print_modes: false 
 
         camera_names:
@@ -27,3 +27,4 @@ multicamera_node:
             - "package://argus_camera_ros/config/calib/front_right_info.yaml"
             - "package://argus_camera_ros/config/calib/side_left_info.yaml"
             - "package://argus_camera_ros/config/calib/side_right_info.yaml"
+
