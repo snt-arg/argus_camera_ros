@@ -1,0 +1,27 @@
+camera_name: side_left
+image_width: 640
+image_height: 480
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [398.02035665096423, 0.0, 326.0266084072755,
+         0.0, 397.364686315368, 240.65282243901888,
+         0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [-0.3433580927578972, 0.10337515080245259, -0.0006314563810616071, 0.0004674376102527941, 0.0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0,
+         0.0, 1.0, 0.0,
+         0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [398.02035665096423, 0.0, 326.0266084072755, 0.0,
+         0.0, 397.364686315368, 240.65282243901888, 0.0,
+         0.0, 0.0, 1.0, 0.0]
+

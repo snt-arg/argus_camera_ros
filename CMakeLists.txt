@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.8)
 project(argus_camera_ros)
 
+# Add cmake/ path
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 #   add_compile_options(-Wall -Wextra -Wpedantic)
 # endif()
 
 # Find dependencies
+find_package(JetsonArgus REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -18,54 +22,17 @@ find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(camera_info_manager REQUIRED)
 
-
-# --------------------------------------
-# - Start of Jetson Specific Variables -
-# --------------------------------------
-
-SET(TEGRA_ARMABI aarch64-linux-gnu)
-SET(JETSON_TEGRA_DIR /usr/lib/${TEGRA_ARMABI})
-SET(JETSON_API_DIR /usr/src/jetson_multimedia_api/)
-SET(JETSON_CLASS_DIR ${JETSON_API_DIR}/samples/common/classes)
-SET(JETSON_UTILS_DIR ${JETSON_API_DIR}/argus/samples/utils)
-SET(JETSON_ALGO_CUDA_DIR ${JETSON_API_DIR}/samples/common/algorithm/cuda)
-SET(JETSON_ALGO_TRT_DIR ${JETSON_API_DIR}/samples/common/algorithm/trt)
-
-SET(JETSON_HEADERS 
-    ${JETSON_API_DIR}/include
-    ${JETSON_API_DIR}/include/libjpeg-8b
-    /usr/include/${TEGRA_ARMABI}
-    /usr/include/libdrm/
-    # /usr/include/opencv4/
-    /usr/local/cuda/include
-    ${JETSON_ALGO_TRT_DIR}
-    ${JETSON_ALGO_CUDA_DIR}
-    ${JETSON_CLASSS_DIR}
-    ${JETSON_UTILS_DIR}
+include_directories(
+    ${PROJECT_SOURCE_DIR}/include/
+    ${JETSON_ARGUS_INCLUDE_DIRS}
 )
 
-SET(JETSON_LIBS_DIR 
-  /usr/lib/${TEGRA_ARMABI}/
-  /usr/lib/${TEGRA_ARMABI}/nvidia
-  /usr/lib/${TEGRA_ARMABI}/tegra/
-  /usr/local/cuda/lib64/
+link_directories(
+  ${PROJECT_SOURCE_DIR}/lib
+  ${JETSON_ARGUS_LIBRARY_DIRS}
 )
 
-
-
-SET(JETSON_LIBS
-  -lnvargus -largussampleutils -lnvbufsurface -lnvargus_socketclient 
-  -lpthread -lnvv4l2 -lEGL -lGLESv2 -lX11 -lnvbufsurftransform -lnvjpeg 
-  -lnvosd -ldrm -lcuda -lcudart
-)
-
-file(GLOB JETSON_SOURCES CONFIGURE_DEPENDS "${JETSON_CLASS_DIR}/*.cpp")
-
-
-# --------------------------------------
-# - End of Jetson Specific Variables -
-# --------------------------------------
-
+# Dependencies
 SET(DEPENDENCIES 
   rclcpp
   std_msgs
@@ -79,27 +46,19 @@ SET(DEPENDENCIES
   camera_info_manager
 )
 
-SET(LIBS ${JETSON_LIBS})
-
+SET(LIBS ${JETSON_ARGUS_LIBRARIES})
 
 file(GLOB SRC_FILES CONFIGURE_DEPENDS "src/argus_camera_ros/*.cpp")
-SET(SOURCES ${JETSON_SOURCES} ${SRC_FILES})
-
-include_directories(
-    ${PROJECT_SOURCE_DIR}/include/
-    ${JETSON_HEADERS}
-)
-
-link_directories(
-  ${PROJECT_SOURCE_DIR}/lib
-  ${JETSON_LIBS_DIR}
-)
-
+SET(SOURCES ${SRC_FILES} ${JETSON_ARGUS_SOURCES})
 
 # Executables
-add_executable(argus_camera_node src/argus_camera_node.cpp ${SOURCES})
-ament_target_dependencies(argus_camera_node ${DEPENDENCIES})
-target_link_libraries(argus_camera_node ${LIBS})
+add_executable(multicamera_node apps/multicamera_node.cpp ${SOURCES})
+ament_target_dependencies(multicamera_node ${DEPENDENCIES})
+target_link_libraries(multicamera_node ${LIBS})
+
+add_executable(singlecamera_node apps/singlecamera_node.cpp ${SOURCES})
+ament_target_dependencies(singlecamera_node ${DEPENDENCIES})
+target_link_libraries(singlecamera_node ${LIBS})
 
 install(
   DIRECTORY include
@@ -112,7 +71,8 @@ install(
 )
 
 install(TARGETS 
-  argus_camera_node
+  multicamera_node
+  singlecamera_node
   DESTINATION lib/${PROJECT_NAME}
   INCLUDES DESTINATION include
 )
